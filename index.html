@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>TourneyPro v0.31</title>
+<title>TourneyPro v0.32</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 /* FC Muldakicker — Club Colours (dark mode) */
@@ -247,7 +247,7 @@ select option{background:var(--bg3);color:var(--text)}
   <div class="sidebar">
     <div class="sb-header">
       <div class="sb-logo" id="sl-logo">🏆</div>
-      <div><div style="font-family:var(--font-display);font-weight:700;font-size:15px;letter-spacing:.06em;text-transform:uppercase;color:var(--gold)">TourneyPro</div><div style="font-size:10px;color:var(--muted)">v0.31</div></div>
+      <div><div style="font-family:var(--font-display);font-weight:700;font-size:15px;letter-spacing:.06em;text-transform:uppercase;color:var(--gold)">TourneyPro</div><div style="font-size:10px;color:var(--muted)">v0.32</div></div>
     </div>
     <div class="sb-sec">Navigation</div>
     <button class="nav-item active" id="nav-home" onclick="openHome()"><span class="ic">🏠</span>Alle Turniere</button>
@@ -1333,8 +1333,13 @@ function bracketSlotLabel(slot, t) {
   if (!slot) return '—';
   if (slot.type === 'bye') return 'BYE / Freilos';
   if (slot.type === 'team') return slot.value || '—';
-  if (slot.type === 'winner') return 'Sieger ' + (slot.sourceId||'?').toUpperCase();
-  if (slot.type === 'loser') return 'Verlierer ' + (slot.sourceId||'?').toUpperCase();
+  if (slot.type === 'winner' || slot.type === 'loser') {
+    // Show the CURRENT (possibly edited) label of the source match, not its static id
+    const prefix = slot.type === 'winner' ? 'Sieger ' : 'Verlierer ';
+    const srcMatch = t?.bracket?.matches?.find(m => m.id === slot.sourceId);
+    const srcLabel = srcMatch?.label || (slot.sourceId || '?').toUpperCase();
+    return prefix + srcLabel;
+  }
   if (slot.type === 'seed') {
     if (t && t.koPhase) {
       const resolved = resolveSeedLabel(t, slot.value);
@@ -3631,7 +3636,14 @@ function renderPubBracket(t){
     +'<button class="btn btn-sm '+(F==='upcoming'?'btn-primary':'')+'" data-pkf="upcoming">Ausstehend</button>'
     +'<button class="btn btn-sm '+(F==='played'?'btn-primary':'')+'" data-pkf="played">Abgeschlossen</button>'
     +'</div>';
-  const allKOCards=(br?.matches||[]).filter(m=>!m.disabled&&m.awaySlot?.type!=='bye').map(m=>{
+  const byTimeKO=(a,b)=>{
+    const ta=timeToMin(a.time), tb=timeToMin(b.time);
+    if(ta===null&&tb===null)return (a.round-b.round)||(a.idx-b.idx);
+    if(ta===null)return 1;
+    if(tb===null)return -1;
+    return ta-tb;
+  };
+  const allKOCards=(br?.matches||[]).filter(m=>!m.disabled&&m.awaySlot?.type!=='bye').sort(byTimeKO).map(m=>{
     const res=m.result;
     const pl=!!res;
     if(F==='played'&&!pl)return'';
@@ -3864,14 +3876,29 @@ function saveKOTeams(key){
   // Update new bracket system
   ensureBracket(t);
   const bm=t.bracket?.matches?.find(x=>x.id===key);
-  function makeSlot(val){
-    if(!val||val==='— Auto —')return null; // keep existing slot
+  // Original placeholder labels (round 1: seed labels like "1. Gruppe A"; later rounds: winner-of-previous-match)
+  function resetSlotFor(slotKind /* 'home'|'away' */){
+    if(bm.round===1){
+      // Recompute the original seed for this R1 slot from the bracket's seeding
+      const seeds=koSeeds(t);
+      const idx=bm.idx;
+      const seed=slotKind==='home'?seeds[idx*2]:seeds[idx*2+1];
+      return seed?{type:'seed',value:seed.label}:{type:'bye'};
+    }
+    // Later rounds: find the edge that originally fed this slot (winner of previous match)
+    const ed=t.bracket.edges.find(e=>e.toId===bm.id&&e.toSlot===slotKind);
+    if(ed) return{type:ed.type,sourceId:ed.fromId};
+    return{type:'seed',value:'—'};
+  }
+  function makeSlot(val,slotKind){
+    if(!val)return null; // empty = leave untouched
+    if(val==='— Auto —')return resetSlotFor(slotKind); // explicit reset to placeholder
     if(val==='BYE / Freilos')return{type:'bye'};
     const isLabel=/^\d+\.\s/.test(val)||/^Gruppen(sieger|zweiter|dritter|vieter|fünfter)/.test(val);
     return{type:isLabel?'seed':'team',value:val};
   }
   if(bm){
-    const hs=makeSlot(h),as=makeSlot(a);
+    const hs=makeSlot(h,'home'),as=makeSlot(a,'away');
     if(hs!==null)bm.homeSlot=hs;
     if(as!==null)bm.awaySlot=as;
     if(c){if(!bm.result)bm.result={hg:null,ag:null};bm.result.comment=c;}
