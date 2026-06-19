@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>TourneyPro v0.24</title>
+<title>TourneyPro v0.27</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 /* FC Muldakicker — Club Colours (dark mode) */
@@ -238,16 +238,16 @@ select option{background:var(--bg3);color:var(--text)}
 <body>
 <div class="view-toggle">
   <span id="sync-indicator" style="font-size:11px;color:var(--green);opacity:0;transition:opacity .3s;align-self:center;margin-right:4px;font-family:var(--font-display);font-weight:600"></span>
-  <button class="vbtn active" id="vbtn-admin" onclick="setView('admin')">⚙ Admin</button>
+  <button class="vbtn active" id="vbtn-admin" onclick="setView('admin')" style="display:none">⚙ Admin</button>
   <button class="vbtn" id="vbtn-public" onclick="setView('public')">📱 Public</button>
 </div>
 
 <!-- ADMIN -->
-<div id="admin-view" class="app">
+<div id="admin-view" class="app" style="display:none">
   <div class="sidebar">
     <div class="sb-header">
       <div class="sb-logo" id="sl-logo">🏆</div>
-      <div><div style="font-family:var(--font-display);font-weight:700;font-size:15px;letter-spacing:.06em;text-transform:uppercase;color:var(--gold)">TourneyPro</div><div style="font-size:10px;color:var(--muted)">v0.24</div></div>
+      <div><div style="font-family:var(--font-display);font-weight:700;font-size:15px;letter-spacing:.06em;text-transform:uppercase;color:var(--gold)">TourneyPro</div><div style="font-size:10px;color:var(--muted)">v0.27</div></div>
     </div>
     <div class="sb-sec">Navigation</div>
     <button class="nav-item active" id="nav-home" onclick="openHome()"><span class="ic">🏠</span>Alle Turniere</button>
@@ -262,6 +262,7 @@ select option{background:var(--bg3);color:var(--text)}
       <div class="sb-sec">Bracket</div>
       <button class="nav-item" id="nav-bracket" onclick="showPage('bracket')"><span class="ic" id="nav-bracket-ic">🌳</span><span id="nav-bracket-lbl">K.O.-Bracket</span><span class="live-b" id="nav-bracket-active" style="display:none"><span class="ld"></span>Aktiv</span></button>
       <button class="nav-item" onclick="showPage('qr')"><span class="ic">📱</span>QR-Code</button>
+      <button class="nav-item" onclick="showPage('tipping_ranking')"><span class="ic">🎯</span>Tippspiel</button>
       <div style="padding:8px 16px;margin-top:4px">
         <button class="btn btn-ghost btn-sm" style="width:100%;justify-content:center" onclick="openHome()">← Turnierliste</button>
       </div>
@@ -276,7 +277,7 @@ select option{background:var(--bg3);color:var(--text)}
 </div>
 
 <!-- PUBLIC -->
-<div id="public-view">
+<div id="public-view" style="display:block">
   <div class="pub-header">
     <div class="pub-logo" id="pub-logo">🏆</div>
     <div style="flex:1;min-width:0">
@@ -2489,6 +2490,19 @@ qr:()=>{
     <button class="btn btn-primary" style="width:100%;margin-top:6px" onclick="setView('public')">👁 Public View</button>
   </div>
 </div>`;
+},
+
+tipping_ranking:()=>{
+  const t=T();if(!t)return'';
+  if(!t.tippingEnabled){
+    return`<div style="margin-bottom:18px"><h1>🎯 Tippspiel</h1></div>
+    <div class="alert alert-amber"><span>⚠️</span><span>Das Tippspiel ist für dieses Turnier nicht aktiviert. Aktiviere es unter <strong>Einstellungen → Tippspiel</strong>.</span></div>`;
+  }
+  return`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:10px">
+    <h1>🎯 Tippspiel — Rangliste</h1>
+    <button class="btn btn-sm" onclick="loadAdminRanking()">🔄 Aktualisieren</button>
+  </div>
+  <div id="admin-ranking-content"><div style="color:var(--muted);font-size:13px">Laden...</div></div>`;
 }
 };
 
@@ -2547,6 +2561,20 @@ function cancelNewTourney(){
   }catch(e){ console.warn('Cloud restore failed, using local demo data:',e); }
   _cloudLoaded=true;
   openHome();
+
+  // Admin access: only reachable via ?adminMode URL param + password
+  if(checkAdminModeParam()){
+    if(isAdminUnlocked()){
+      unlockAdmin();
+      setView('admin');
+    } else {
+      document.getElementById('vbtn-admin').style.display=''; // show button, but view stays locked until password
+      showAdminPasswordPrompt();
+    }
+  } else {
+    setView('public');
+  }
+
   checkTipUrlParam();
 }
 initApp();
@@ -2881,6 +2909,79 @@ function initTipping(){
   if(_tipSession) renderTipForm();
   else renderTipLogin();
 }
+
+async function loadAdminRanking(){
+  const t=T();if(!t)return;
+  const el=document.getElementById('admin-ranking-content');
+  if(!el)return;
+  el.innerHTML='<div style="color:var(--muted);font-size:13px">Laden...</div>';
+
+  const {data:participants,error:pErr}=await _sb.from('tip_participants')
+    .select('id,name,code').eq('tournament_id',t.id).order('name',{ascending:true});
+  if(pErr){el.innerHTML='<div style="color:var(--red)">Fehler: '+esc(pErr.message)+'</div>';return;}
+  if(!participants||!participants.length){
+    el.innerHTML='<div style="color:var(--muted);font-size:13px">Noch keine Teilnehmer registriert.</div>';
+    return;
+  }
+
+  // All played matches (group + KO)
+  const playedGroup=t.matches.filter(m=>m.played);
+  const playedKO=(t.bracket?.matches||[]).filter(m=>m.result);
+  const playedIds=[...playedGroup.map(m=>String(m.id)),...playedKO.map(m=>m.id)];
+
+  let allPicks=[];
+  if(playedIds.length){
+    const {data,error}=await _sb.from('tip_picks')
+      .select('participant_id,match_id,home_goals,away_goals')
+      .eq('tournament_id',t.id)
+      .in('match_id',playedIds);
+    if(error){el.innerHTML='<div style="color:var(--red)">Fehler: '+esc(error.message)+'</div>';return;}
+    allPicks=data||[];
+  }
+
+  // Calculate points per participant
+  const pts={};
+  const tipsCount={};
+  participants.forEach(p=>{pts[p.id]=0;tipsCount[p.id]=0;});
+  allPicks.forEach(pick=>{
+    const m=t.matches.find(x=>String(x.id)===pick.match_id)
+      ||(t.bracket?.matches||[]).find(x=>x.id===pick.match_id);
+    if(!m)return;
+    const actualH=m.result?Math.floor(m.result.hg):m.hg;
+    const actualA=m.result?Math.floor(m.result.ag):m.ag;
+    if(actualH===null||actualH===undefined)return;
+    tipsCount[pick.participant_id]=(tipsCount[pick.participant_id]||0)+1;
+    const exact=pick.home_goals===actualH&&pick.away_goals===actualA;
+    const trend=Math.sign(pick.home_goals-pick.away_goals)===Math.sign(actualH-actualA);
+    if(exact) pts[pick.participant_id]=(pts[pick.participant_id]||0)+(t.tippingPoints?.exactResult||3);
+    else if(trend) pts[pick.participant_id]=(pts[pick.participant_id]||0)+(t.tippingPoints?.correctTrend||1);
+  });
+
+  const ranked=participants.map(p=>({...p,pts:pts[p.id]||0,tipsCount:tipsCount[p.id]||0}))
+    .sort((a,b)=>b.pts-a.pts);
+
+  const totalPlayed=playedIds.length;
+
+  el.innerHTML=`
+  <div class="stats-grid" style="grid-template-columns:repeat(3,1fr)">
+    <div class="stat-card"><div style="font-size:20px;margin-bottom:4px">👥</div><div style="font-size:22px;font-weight:700;color:var(--gold)">${participants.length}</div><div style="font-size:11px;color:var(--muted)">Teilnehmer</div></div>
+    <div class="stat-card"><div style="font-size:20px;margin-bottom:4px">✅</div><div style="font-size:22px;font-weight:700;color:var(--gold)">${totalPlayed}</div><div style="font-size:11px;color:var(--muted)">Ausgewertete Spiele</div></div>
+    <div class="stat-card"><div style="font-size:20px;margin-bottom:4px">🏆</div><div style="font-size:18px;font-weight:700;color:var(--gold);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${ranked[0]?esc(ranked[0].name):'—'}</div><div style="font-size:11px;color:var(--muted)">Aktuell führend</div></div>
+  </div>
+  <div class="card">
+    <table class="table">
+      <thead><tr><th style="width:40px">#</th><th>Name</th><th style="text-align:right">Tipps abgegeben</th><th style="text-align:right">Punkte</th></tr></thead>
+      <tbody>${ranked.map((p,i)=>`<tr>
+        <td><span class="rank ${i===0?'r1':i===1?'r2':i===2?'r3':''}">${i+1}</span></td>
+        <td style="font-weight:500">${esc(p.name)}</td>
+        <td style="text-align:right;color:var(--muted)">${p.tipsCount}</td>
+        <td style="text-align:right;font-weight:700;color:var(--gold)">${p.pts}</td>
+      </tr>`).join('')}</tbody>
+    </table>
+  </div>
+  <div style="font-size:12px;color:var(--muted);margin-top:8px">Punktesystem: ${t.tippingPoints?.exactResult||3} Pkt. für exaktes Ergebnis, ${t.tippingPoints?.correctTrend||1} Pkt. für richtige Tendenz.</div>`;
+}
+
 function renderTipLogin(){
   const tipDiv=document.getElementById('pt-tipping');
   if(!tipDiv)return;
@@ -2923,8 +3024,16 @@ async function renderTipForm(){
         played:!!m.result,hg:m.result?Math.floor(m.result.hg):null,ag:m.result?Math.floor(m.result.ag):null
       }))
   ];
-  const open=allMatches.filter(m=>!m.played);
-  const closed=allMatches.filter(m=>m.played);
+  // Sort chronologically by time (matches without a time go last)
+  const byTime=(a,b)=>{
+    const ta=timeToMin(a.time), tb=timeToMin(b.time);
+    if(ta===null&&tb===null)return 0;
+    if(ta===null)return 1;
+    if(tb===null)return -1;
+    return ta-tb;
+  };
+  const open=allMatches.filter(m=>!m.played).sort(byTime);
+  const closed=allMatches.filter(m=>m.played).sort(byTime);
 
   tipDiv.innerHTML=`
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
@@ -3053,6 +3162,58 @@ async function pullLatestTournament(tournamentId){
   return null;
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════
+// ADMIN ACCESS GATE
+// ═══════════════════════════════════════════════════════════════════════
+const ADMIN_PASSWORD = '94mulda';
+const ADMIN_SESSION_KEY = 'tp_admin_unlocked';
+
+function checkAdminModeParam(){
+  const params=new URLSearchParams(window.location.search);
+  return params.has('adminMode');
+}
+
+function isAdminUnlocked(){
+  try{ return sessionStorage.getItem(ADMIN_SESSION_KEY)==='1'; }catch(e){ return false; }
+}
+
+function unlockAdmin(){
+  try{ sessionStorage.setItem(ADMIN_SESSION_KEY,'1'); }catch(e){}
+  document.getElementById('vbtn-admin').style.display='';
+}
+
+function showAdminPasswordPrompt(){
+  const modal=document.createElement('div');
+  modal.id='admin-pw-modal';
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML=`<div style="background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);padding:24px;width:100%;max-width:340px">
+    <h3 style="margin-bottom:6px;font-family:var(--font-display);color:var(--gold)">🔒 Admin-Zugang</h3>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:14px">Bitte Passwort eingeben.</p>
+    <input type="password" id="admin-pw-inp" placeholder="Passwort" autocomplete="off"
+      onkeydown="if(event.key==='Enter')submitAdminPassword()">
+    <div id="admin-pw-err" style="color:var(--red);font-size:12px;margin-top:8px;min-height:16px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+      <button class="btn" onclick="document.getElementById('admin-pw-modal').remove()">Abbrechen</button>
+      <button class="btn btn-primary" onclick="submitAdminPassword()">Entsperren →</button>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+  setTimeout(()=>document.getElementById('admin-pw-inp')?.focus(),50);
+}
+
+function submitAdminPassword(){
+  const val=document.getElementById('admin-pw-inp')?.value||'';
+  if(val===ADMIN_PASSWORD){
+    unlockAdmin();
+    document.getElementById('admin-pw-modal')?.remove();
+    setView('admin');
+  } else {
+    const err=document.getElementById('admin-pw-err');
+    if(err)err.textContent='Falsches Passwort.';
+  }
+}
+
 function createTourney(){
   const t=makeTourney({id:'t'+Date.now(),name:'',sport:'',phase:'Gruppenphase',slug:''});
   t._isNew=true;
@@ -3090,6 +3251,20 @@ function deleteTourney(id){
   }catch(e){ console.warn('Cloud restore failed, using local demo data:',e); }
   _cloudLoaded=true;
   openHome();
+
+  // Admin access: only reachable via ?adminMode URL param + password
+  if(checkAdminModeParam()){
+    if(isAdminUnlocked()){
+      unlockAdmin();
+      setView('admin');
+    } else {
+      document.getElementById('vbtn-admin').style.display=''; // show button, but view stays locked until password
+      showAdminPasswordPrompt();
+    }
+  } else {
+    setView('public');
+  }
+
   checkTipUrlParam();
 }
 initApp();}
@@ -3231,11 +3406,12 @@ function showPage(p){
     return; // silently block
   }
   document.querySelectorAll('#sb-t-nav .nav-item').forEach(n=>n.classList.remove('active'));
-  const map={overview:0,settings:1,teams:2,groups:3,schedule:4,standings:5,bracket:6,custom_bracket:7,qr:8};
+  const map={overview:0,settings:1,teams:2,groups:3,schedule:4,standings:5,bracket:6,custom_bracket:7,qr:8,tipping_ranking:9};
   const items=document.querySelectorAll('#sb-t-nav .nav-item');
   if(items[map[p]])items[map[p]].classList.add('active');
   renderMain(pages[p]?pages[p]():'<p style="padding:20px;color:var(--muted)">Nicht gefunden</p>');
   if(p==='qr')setTimeout(()=>{const t=T();if(t)updateQR(t.slug);},60);
+  if(p==='tipping_ranking')setTimeout(()=>{const t=T();if(t&&t.tippingEnabled)loadAdminRanking();},60);
   if(p==='bracket'){setTimeout(()=>{
     const t=T();if(!t)return;
     Object.entries(t.koResults||{}).forEach(([key,res])=>{
@@ -3245,6 +3421,10 @@ function showPage(p){
   },30);}
 }
 function setView(v){
+  if(v==='admin'&&!isAdminUnlocked()){
+    showAdminPasswordPrompt();
+    return;
+  }
   document.getElementById('admin-view').style.display=v==='admin'?'flex':'none';
   document.getElementById('public-view').style.display=v==='public'?'block':'none';
   document.getElementById('vbtn-admin').classList.toggle('active',v==='admin');
@@ -3711,6 +3891,20 @@ async function initApp(){
   }catch(e){ console.warn('Cloud restore failed, using local demo data:',e); }
   _cloudLoaded=true;
   openHome();
+
+  // Admin access: only reachable via ?adminMode URL param + password
+  if(checkAdminModeParam()){
+    if(isAdminUnlocked()){
+      unlockAdmin();
+      setView('admin');
+    } else {
+      document.getElementById('vbtn-admin').style.display=''; // show button, but view stays locked until password
+      showAdminPasswordPrompt();
+    }
+  } else {
+    setView('public');
+  }
+
   checkTipUrlParam();
 }
 initApp();
