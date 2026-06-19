@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>TourneyPro v0.30</title>
+<title>TourneyPro v0.31</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 /* FC Muldakicker — Club Colours (dark mode) */
@@ -239,7 +239,7 @@ select option{background:var(--bg3);color:var(--text)}
 <div class="view-toggle">
   <span id="sync-indicator" style="font-size:11px;color:var(--green);opacity:0;transition:opacity .3s;align-self:center;margin-right:4px;font-family:var(--font-display);font-weight:600"></span>
   <button class="vbtn active" id="vbtn-admin" onclick="setView('admin')" style="display:none">⚙ Admin</button>
-  <button class="vbtn" id="vbtn-public" onclick="setView('public')">📱 Public</button>
+  <button class="vbtn" id="vbtn-public" onclick="setView('public')" style="display:none">📱 Public</button>
 </div>
 
 <!-- ADMIN -->
@@ -247,7 +247,7 @@ select option{background:var(--bg3);color:var(--text)}
   <div class="sidebar">
     <div class="sb-header">
       <div class="sb-logo" id="sl-logo">🏆</div>
-      <div><div style="font-family:var(--font-display);font-weight:700;font-size:15px;letter-spacing:.06em;text-transform:uppercase;color:var(--gold)">TourneyPro</div><div style="font-size:10px;color:var(--muted)">v0.30</div></div>
+      <div><div style="font-family:var(--font-display);font-weight:700;font-size:15px;letter-spacing:.06em;text-transform:uppercase;color:var(--gold)">TourneyPro</div><div style="font-size:10px;color:var(--muted)">v0.31</div></div>
     </div>
     <div class="sb-sec">Navigation</div>
     <button class="nav-item active" id="nav-home" onclick="openHome()"><span class="ic">🏠</span>Alle Turniere</button>
@@ -2571,11 +2571,9 @@ function cancelNewTourney(){
   // Admin access: only reachable via ?adminMode URL param + password
   if(checkAdminModeParam()){
     if(isAdminUnlocked()){
-      unlockAdmin();
       setView('admin');
     } else {
-      document.getElementById('vbtn-admin').style.display=''; // show button, but view stays locked until password
-      showAdminPasswordPrompt();
+      showAdminPasswordPrompt(); // password prompt shown over default public view; no buttons revealed
     }
   } else {
     setView('public');
@@ -2895,30 +2893,35 @@ async function loadMyRank(tournamentId){
   if(!_tipSession)return null;
   const t=DB.tournaments.find(x=>x.id===tournamentId);
   if(!t)return null;
-  // Get all participants
-  const {data:participants}=await _sb.from('tip_participants')
-    .select('id').eq('tournament_id',tournamentId);
-  // Get all picks for played matches
+  // Only participants who have submitted at least one tip count as "active"
+  const {data:allPicksEver}=await _sb.from('tip_picks')
+    .select('participant_id').eq('tournament_id',tournamentId);
+  const activeIds=new Set((allPicksEver||[]).map(p=>p.participant_id));
+  const total=activeIds.size;
+  if(!total)return{rank:null,total:0,pts:0};
+
+  // Get all picks for played matches (to compute points)
   const playedIds=[...t.matches.filter(m=>m.played).map(m=>String(m.id)),
     ...(t.bracket?.matches||[]).filter(m=>m.result).map(m=>m.id)];
-  if(!playedIds.length)return{rank:null,total:(participants||[]).length,pts:0};
-  const {data:allPicks}=await _sb.from('tip_picks')
-    .select('participant_id,match_id,home_goals,away_goals')
-    .eq('tournament_id',tournamentId)
-    .in('match_id',playedIds);
-  // Calculate points per participant
   const pts={};
-  (participants||[]).forEach(p=>pts[p.id]=0);
-  (allPicks||[]).forEach(pick=>{
-    const m=t.matches.find(x=>String(x.id)===pick.match_id)||(t.bracket?.matches||[]).find(x=>x.id===pick.match_id);
-    if(!m)return;
-    const actualH=m.result?Math.floor(m.result.hg):m.hg;
-    const actualA=m.result?Math.floor(m.result.ag):m.ag;
-    if(actualH===null||actualH===undefined)return;
-    const r=calcTipPoints(pick.home_goals,pick.away_goals,actualH,actualA,t.tippingPoints);
-    pts[pick.participant_id]=(pts[pick.participant_id]||0)+r.pts;
-  });
-  // Rank
+  activeIds.forEach(id=>pts[id]=0);
+
+  if(playedIds.length){
+    const {data:allPicks}=await _sb.from('tip_picks')
+      .select('participant_id,match_id,home_goals,away_goals')
+      .eq('tournament_id',tournamentId)
+      .in('match_id',playedIds);
+    (allPicks||[]).forEach(pick=>{
+      const m=t.matches.find(x=>String(x.id)===pick.match_id)||(t.bracket?.matches||[]).find(x=>x.id===pick.match_id);
+      if(!m)return;
+      const actualH=m.result?Math.floor(m.result.hg):m.hg;
+      const actualA=m.result?Math.floor(m.result.ag):m.ag;
+      if(actualH===null||actualH===undefined)return;
+      const r=calcTipPoints(pick.home_goals,pick.away_goals,actualH,actualA,t.tippingPoints);
+      pts[pick.participant_id]=(pts[pick.participant_id]||0)+r.pts;
+    });
+  }
+  // Rank among ACTIVE participants only
   const sorted=Object.entries(pts).sort((a,b)=>b[1]-a[1]);
   const myIdx=sorted.findIndex(([id])=>id===_tipSession.participant_id);
   return{rank:myIdx+1,total:sorted.length,pts:pts[_tipSession.participant_id]||0};
@@ -3216,7 +3219,7 @@ function isAdminUnlocked(){
 
 function unlockAdmin(){
   try{ sessionStorage.setItem(ADMIN_SESSION_KEY,'1'); }catch(e){}
-  document.getElementById('vbtn-admin').style.display='';
+  // Button visibility is now fully handled by setView() based on current mode
 }
 
 function showAdminPasswordPrompt(){
@@ -3291,11 +3294,9 @@ function deleteTourney(id){
   // Admin access: only reachable via ?adminMode URL param + password
   if(checkAdminModeParam()){
     if(isAdminUnlocked()){
-      unlockAdmin();
       setView('admin');
     } else {
-      document.getElementById('vbtn-admin').style.display=''; // show button, but view stays locked until password
-      showAdminPasswordPrompt();
+      showAdminPasswordPrompt(); // password prompt shown over default public view; no buttons revealed
     }
   } else {
     setView('public');
@@ -3465,6 +3466,17 @@ function setView(v){
   document.getElementById('public-view').style.display=v==='public'?'block':'none';
   document.getElementById('vbtn-admin').classList.toggle('active',v==='admin');
   document.getElementById('vbtn-public').classList.toggle('active',v==='public');
+  // Button visibility: in admin mode show "Public" (preview), hide "Admin" (already there).
+  // In public mode (normal users), hide both — no hint that an admin area exists.
+  const adminBtn=document.getElementById('vbtn-admin');
+  const publicBtn=document.getElementById('vbtn-public');
+  if(v==='admin'){
+    if(adminBtn)adminBtn.style.display='none';
+    if(publicBtn)publicBtn.style.display='';
+  } else {
+    if(adminBtn)adminBtn.style.display='none';
+    if(publicBtn)publicBtn.style.display='none';
+  }
   if(v==='public')renderPublic();
 }
 
@@ -3931,11 +3943,9 @@ async function initApp(){
   // Admin access: only reachable via ?adminMode URL param + password
   if(checkAdminModeParam()){
     if(isAdminUnlocked()){
-      unlockAdmin();
       setView('admin');
     } else {
-      document.getElementById('vbtn-admin').style.display=''; // show button, but view stays locked until password
-      showAdminPasswordPrompt();
+      showAdminPasswordPrompt(); // password prompt shown over default public view; no buttons revealed
     }
   } else {
     setView('public');
