@@ -2808,23 +2808,25 @@ function downloadAllQR(){
 async function checkTipUrlParam(){
   const params=new URLSearchParams(window.location.search);
   const code=params.get('tip');
-  if(code){
-    // The correct tournament was already resolved in initApp() via ?t=<slug>
-    // (or the latest-synced fallback). No need to re-resolve here.
-    setView('public');
-    setTimeout(()=>{
-      const tab=document.getElementById('pub-tab-tipping');
-      if(tab) pubTab(tab,'pt-tipping');
-      setTimeout(()=>{
-        const inp=document.getElementById('tip-code-inp');
-        if(inp){
-          inp.value=code;
-          const t=T()||DB.tournaments.find(x=>!x.archived)||DB.tournaments[0];
-          if(t) tipLogin(t.id);
-        }
-      },150);
-    },150);
+  if(!code)return;
+  setView('public');
+  // Switch to tipping tab without triggering initTipping() (which would show login form)
+  document.querySelectorAll('.pub-tab').forEach(t=>t.classList.remove('active'));
+  const tab=document.getElementById('pub-tab-tipping');
+  if(tab)tab.classList.add('active');
+  ['pt-standings','pt-schedule','pt-bracket'].forEach(id=>{
+    const d=document.getElementById(id);if(d)d.style.display='none';
+  });
+  const tipDiv=document.getElementById('pt-tipping');
+  if(tipDiv){
+    tipDiv.style.display='block';
+    tipDiv.innerHTML='<div style="color:var(--muted);text-align:center;padding:30px;font-size:13px">⏳ Wird geladen...</div>';
   }
+  // Wait for renderPublic to finish loading fresh tournament data
+  await new Promise(r=>setTimeout(r,300));
+  // Now login directly — tipLogin fetches fresh tournament itself
+  const t=T()||DB.tournaments.find(x=>!x.archived)||DB.tournaments[0];
+  if(t) await tipLogin(t.id, code);
 }
 
 function genCode(){
@@ -2892,8 +2894,8 @@ async function deleteTipCode(id){
 let _tipSession = null; // {participant_id, name, tournament_id}
 let _tipInfoExpanded = {}; // {participantId: true/false} — true=expanded
 
-async function tipLogin(tournamentId){
-  const code=(document.getElementById('tip-code-inp')?.value||'').trim().toUpperCase();
+async function tipLogin(tournamentId, _autoCode){
+  const code=(_autoCode||(document.getElementById('tip-code-inp')?.value||'')).trim().toUpperCase();
   if(!code){alert('Bitte Code eingeben!');return;}
   const {data,error}=await _sb.from('tip_participants')
     .select('id,name,chosen_group')
@@ -2908,6 +2910,12 @@ async function tipLogin(tournamentId){
   const fresh=await pullLatestTournament(tournamentId);
   const t=fresh||DB.tournaments.find(x=>x.id===tournamentId);
   _tipSession={participant_id:data.id,name:data.name,tournament_id:tournamentId,chosen_group:data.chosen_group||null};
+  // Update URL so refresh auto-logs back in (same as QR scan)
+  try{
+    const params=new URLSearchParams(window.location.search);
+    params.set('tip',code);
+    history.replaceState(null,'',window.location.pathname+'?'+params.toString());
+  }catch(e){}
   // Modus B: if no group chosen yet, show group selection first
   if(t?.tippingMode==='B'&&!data.chosen_group){
     renderGroupSelection(t);
