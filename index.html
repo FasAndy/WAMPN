@@ -2896,7 +2896,7 @@ async function tipLogin(tournamentId){
   const code=(document.getElementById('tip-code-inp')?.value||'').trim().toUpperCase();
   if(!code){alert('Bitte Code eingeben!');return;}
   const {data,error}=await _sb.from('tip_participants')
-    .select('id,name')
+    .select('id,name,chosen_group')
     .eq('tournament_id',tournamentId)
     .eq('code',code)
     .single();
@@ -2904,8 +2904,46 @@ async function tipLogin(tournamentId){
     document.getElementById('tip-login-err').textContent='Ungültiger Code. Bitte prüfen.';
     return;
   }
-  _tipSession={participant_id:data.id,name:data.name,tournament_id:tournamentId};
+  const t=DB.tournaments.find(x=>x.id===tournamentId);
+  _tipSession={participant_id:data.id,name:data.name,tournament_id:tournamentId,chosen_group:data.chosen_group||null};
+  // Modus B: if no group chosen yet, show group selection first
+  if(t?.tippingMode==='B'&&!data.chosen_group){
+    renderGroupSelection(t);
+  } else {
+    renderTipForm();
+  }
+}
+
+async function saveChosenGroup(tournamentId, group){
+  const {error}=await _sb.from('tip_participants')
+    .update({chosen_group:group})
+    .eq('id',_tipSession.participant_id);
+  if(error){alert('Fehler beim Speichern: '+error.message);return;}
+  _tipSession.chosen_group=group;
   renderTipForm();
+}
+
+function renderGroupSelection(t){
+  const tipDiv=document.getElementById('pt-tipping');
+  if(!tipDiv)return;
+  const gNames=Object.keys(t.groups);
+  const gKeys=gNames;
+  tipDiv.innerHTML=`
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);padding:24px;max-width:480px;margin:0 auto">
+      <div style="font-family:var(--font-display);font-weight:700;font-size:18px;color:var(--gold);margin-bottom:6px">👋 ${esc(_tipSession.name)}</div>
+      <p style="font-size:14px;color:var(--muted);margin:0 0 20px">Willkommen beim Tippspiel! Wähle deine Gruppe. Du tippst dann auf alle Spiele dieser Gruppe sowie die K.O.-Phase.<br><br><strong style="color:var(--text)">Achtung: Diese Wahl kann nicht mehr geändert werden.</strong></p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px">
+        ${gNames.map((g,i)=>{
+          const col=GRP_COLORS[i%GRP_COLORS.length];
+          return`<button onclick="saveChosenGroup('${t.id}','${esc(g)}')"
+            style="padding:16px;border:2px solid ${col};border-radius:var(--r);background:${col}15;color:var(--text);cursor:pointer;font-family:var(--font-display);font-weight:700;font-size:15px;letter-spacing:.03em;text-align:center;transition:all .15s"
+            onmouseover="this.style.background='${col}30'" onmouseout="this.style.background='${col}15'">
+            <div style="font-size:22px;margin-bottom:6px">⚽</div>
+            ${esc(g)}
+          </button>`;
+        }).join('')}
+      </div>
+    </div>`;
 }
 
 
@@ -3211,7 +3249,11 @@ async function renderTipForm(){
         grpCol:{bg:'rgba(239,68,68,.15)',fg:'#ef4444'} // KO matches in red
       }))
   ];
-  // Sort chronologically by time (matches without a time go last)
+  // Modus B: only show matches from chosen group + KO
+  const modeFilter=(m)=>{
+    if(t.tippingMode!=='B'||!_tipSession.chosen_group)return true;
+    return m.isKO||m.grp===_tipSession.chosen_group;
+  };
   const byTime=(a,b)=>{
     const ta=timeToMin(a.time), tb=timeToMin(b.time);
     if(ta===null&&tb===null)return 0;
@@ -3219,13 +3261,14 @@ async function renderTipForm(){
     if(tb===null)return -1;
     return ta-tb;
   };
-  const open=allMatches.filter(m=>!m.played).sort(byTime);
-  const closed=allMatches.filter(m=>m.played).sort(byTime);
+  const open=allMatches.filter(m=>!m.played&&modeFilter(m)).sort(byTime);
+  const closed=allMatches.filter(m=>m.played&&modeFilter(m)).sort(byTime);
 
   tipDiv.innerHTML=`
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
       <div>
         <div style="font-family:var(--font-display);font-weight:700;font-size:16px;color:var(--gold)">👋 ${esc(_tipSession.name)}</div>
+        ${t.tippingMode==='B'&&_tipSession.chosen_group?`<div style="font-size:11px;font-weight:700;font-family:var(--font-display);letter-spacing:.04em;color:var(--muted);margin-top:2px;text-transform:uppercase">${esc(_tipSession.chosen_group)} + K.O.</div>`:''}
         ${rankInfo&&rankInfo.rank?`<div style="font-size:13px;color:var(--muted);margin-top:2px">Rang <strong style="color:var(--text)">${rankInfo.rank}</strong> von ${rankInfo.total} · <strong style="color:var(--gold)">${rankInfo.pts} Punkte</strong></div>`
         :`<div style="font-size:13px;color:var(--muted)">Noch keine Punkte</div>`}
       </div>
