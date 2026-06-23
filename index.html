@@ -2618,7 +2618,10 @@ function cancelNewTourney(){
       if(idx>=0) DB.tournaments[idx]=resolved; else DB.tournaments.unshift(resolved);
     }
     _resolvedTournamentId = resolved?.id || null;
-  }catch(e){ console.warn('Cloud restore failed, using local demo data:',e); _resolvedTournamentId=null; }
+    // If cloud was successfully contacted but returned no tournament,
+    // clear demo data so we don't show stale/fake tournaments
+    if(!resolved) DB.tournaments=[];
+  }catch(e){ console.warn('Cloud restore failed, keeping local demo data:',e); _resolvedTournamentId=null; }
   _cloudLoaded=true;
   openHome();
   // openHome() resets activeTournamentId to null — re-apply our resolved tournament.
@@ -2632,8 +2635,8 @@ function cancelNewTourney(){
   if(checkAdminModeParam()){
     if(isAdminUnlocked()){
       setView('admin');
-      // Restore last visited admin page on refresh
-      if(_urlPage&&pages[_urlPage]) showPage(_urlPage);
+      // Only restore last page if a tournament is still active
+      if(_urlPage&&pages[_urlPage]&&_resolvedTournamentId) showPage(_urlPage);
     } else {
       showAdminPasswordPrompt();
     }
@@ -3539,58 +3542,10 @@ async function syncActiveTournamentById(id){
 }
 async function deleteTourney(id){
   if(!confirm('Turnier wirklich löschen? Der Eintrag wird auch aus der Cloud entfernt.'))return;
-  // Remove from Supabase so public devices no longer see it
   await _sb.from('tournaments_sync').delete().eq('id',id);
   DB.tournaments=DB.tournaments.filter(t=>t.id!==id);
-  if(DB.activeTournamentId===id){DB.activeTournamentId=null;async function initApp(){
-  // Tournament resolution priority:
-  // 1) ?t=<slug> in URL — explicit tournament selection (what public links/QR codes use)
-  // 2) Most recently synced tournament — admin convenience on reload
-  try{
-    const urlSlug=getTournamentSlugFromUrl();
-    let resolved=null;
-    if(urlSlug){
-      resolved=await loadTournamentBySlugFromCloud(urlSlug);
-    }
-    if(!resolved){
-      const ids=await loadAllTournamentIdsFromCloud();
-      if(ids.length){
-        const latestId=ids.sort((a,b)=>new Date(b.updated_at)-new Date(a.updated_at))[0].id;
-        resolved=await loadTournamentFromCloud(latestId);
-      }
-    }
-    if(resolved){
-      const idx=DB.tournaments.findIndex(x=>x.id===resolved.id);
-      if(idx>=0) DB.tournaments[idx]=resolved; else DB.tournaments.unshift(resolved);
-    }
-    _resolvedTournamentId = resolved?.id || null;
-  }catch(e){ console.warn('Cloud restore failed, using local demo data:',e); _resolvedTournamentId=null; }
-  _cloudLoaded=true;
-  openHome();
-  // openHome() resets activeTournamentId to null — re-apply our resolved tournament.
-  if(_resolvedTournamentId) DB.activeTournamentId=_resolvedTournamentId;
-
-  // Determine which page to restore from URL
-  const _urlParams=new URLSearchParams(window.location.search);
-  const _urlPage=_urlParams.get('page');
-
-  // Admin access: only reachable via ?adminMode URL param + password
-  if(checkAdminModeParam()){
-    if(isAdminUnlocked()){
-      setView('admin');
-      // Restore last visited admin page on refresh
-      if(_urlPage&&pages[_urlPage]) showPage(_urlPage);
-    } else {
-      showAdminPasswordPrompt();
-    }
-  } else {
-    setView('public');
-  }
-
-  checkTipUrlParam();
-}
-initApp();}
-  else renderMain(pages.home());
+  if(DB.activeTournamentId===id) DB.activeTournamentId=null;
+  renderMain(pages.home());
 }
 function updateSBForT(){
   const t=T();
@@ -3781,7 +3736,17 @@ function setView(v){
 let _pubSort='chrono';
 async function renderPublic(){
   let t=T()||DB.tournaments.find(x=>!x.archived);
-  if(!t){document.getElementById('pub-title').textContent='TourneyPro';document.getElementById('pub-sub').textContent='Kein Turnier';document.getElementById('pub-logo').innerHTML='🏆';return;}
+  if(!t){
+    document.getElementById('pub-title').textContent='Kein aktives Turnier';
+    document.getElementById('pub-sub').textContent='Das Turnier wurde beendet oder ist noch nicht gestartet.';
+    document.getElementById('pub-logo').innerHTML='🏁';
+    const lb=document.getElementById('pub-live-badge');if(lb)lb.style.display='none';
+    ['pt-standings','pt-schedule','pt-bracket','pt-tipping'].forEach(id=>{
+      const d=document.getElementById(id);
+      if(d)d.innerHTML='<div style="padding:40px;text-align:center;color:var(--muted);font-size:14px">Kein aktives Turnier verfügbar.</div>';
+    });
+    return;
+  }
   // Always fetch fresh from cloud — if null, tournament was deleted
   const fresh=await pullLatestTournament(t.id);
   if(fresh){
@@ -4285,7 +4250,10 @@ async function initApp(){
       if(idx>=0) DB.tournaments[idx]=resolved; else DB.tournaments.unshift(resolved);
     }
     _resolvedTournamentId = resolved?.id || null;
-  }catch(e){ console.warn('Cloud restore failed, using local demo data:',e); _resolvedTournamentId=null; }
+    // If cloud was successfully contacted but returned no tournament,
+    // clear demo data so we don't show stale/fake tournaments
+    if(!resolved) DB.tournaments=[];
+  }catch(e){ console.warn('Cloud restore failed, keeping local demo data:',e); _resolvedTournamentId=null; }
   _cloudLoaded=true;
   openHome();
   // openHome() resets activeTournamentId to null — re-apply our resolved tournament.
@@ -4299,8 +4267,8 @@ async function initApp(){
   if(checkAdminModeParam()){
     if(isAdminUnlocked()){
       setView('admin');
-      // Restore last visited admin page on refresh
-      if(_urlPage&&pages[_urlPage]) showPage(_urlPage);
+      // Only restore last page if a tournament is still active
+      if(_urlPage&&pages[_urlPage]&&_resolvedTournamentId) showPage(_urlPage);
     } else {
       showAdminPasswordPrompt();
     }
