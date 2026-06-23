@@ -1695,7 +1695,6 @@ ${active.map(t=>`
   <div style="display:flex;gap:6px" onclick="event.stopPropagation()">
     <button class="btn btn-sm" onclick="openTourney('${t.id}')">Öffnen →</button>
     <button class="btn btn-sm btn-ghost" onclick="archiveTourney('${t.id}')" title="Archivieren">📦</button>
-    <button class="btn btn-sm btn-danger" onclick="deleteTourney('${t.id}')">✕</button>
   </div>
 </div>`).join('')}
 ${archived.length?`<div style="margin-top:20px;margin-bottom:10px"><h2 style="color:var(--muted)">📦 Archiv (${archived.length})</h2></div>
@@ -3783,9 +3782,24 @@ let _pubSort='chrono';
 async function renderPublic(){
   let t=T()||DB.tournaments.find(x=>!x.archived);
   if(!t){document.getElementById('pub-title').textContent='TourneyPro';document.getElementById('pub-sub').textContent='Kein Turnier';document.getElementById('pub-logo').innerHTML='🏆';return;}
-  // Fetch freshest data from cloud (e.g. if opened on a different device via QR scan)
+  // Always fetch fresh from cloud — if null, tournament was deleted
   const fresh=await pullLatestTournament(t.id);
-  if(fresh) t=fresh;
+  if(fresh){
+    t=fresh;
+  } else {
+    // Tournament no longer exists in cloud (was deleted)
+    document.getElementById('pub-title').textContent='Turnier nicht gefunden';
+    document.getElementById('pub-sub').textContent='Dieses Turnier wurde beendet oder gelöscht.';
+    document.getElementById('pub-logo').innerHTML='🏁';
+    const liveBadge=document.getElementById('pub-live-badge');
+    if(liveBadge)liveBadge.style.display='none';
+    // Clear all tab content
+    ['pt-standings','pt-schedule','pt-bracket','pt-tipping'].forEach(id=>{
+      const d=document.getElementById(id);
+      if(d)d.innerHTML='<div style="padding:40px;text-align:center;color:var(--muted)">Dieses Turnier ist nicht mehr verfügbar.</div>';
+    });
+    return;
+  }
   document.getElementById('pub-title').textContent=t.name;
   document.getElementById('pub-sub').textContent=t.sport+' · '+t.phase;
   document.getElementById('pub-logo').innerHTML=t.logo?`<img src="${t.logo}" style="width:100%;height:100%;object-fit:cover">`:sportIcon(t.sport);
