@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>WAMPN v0.48</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏆</text></svg>">
+<title>WAMPN v0.49</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 /* FC Muldakicker — Club Colours (dark mode) */
@@ -248,7 +249,7 @@ select option{background:var(--bg3);color:var(--text)}
   <div class="sidebar">
     <div class="sb-header">
       <div class="sb-logo" id="sl-logo">🏆</div>
-      <div><div style="font-family:var(--font-display);font-weight:700;font-size:15px;letter-spacing:.06em;text-transform:uppercase;color:var(--gold)">WAMPN</div><div style="font-size:10px;color:var(--muted)">v0.48</div></div>
+      <div><div style="font-family:var(--font-display);font-weight:700;font-size:15px;letter-spacing:.06em;text-transform:uppercase;color:var(--gold)">WAMPN</div><div style="font-size:10px;color:var(--muted)">v0.49</div></div>
     </div>
     <div class="sb-sec">Navigation</div>
     <button class="nav-item active" id="nav-home" onclick="openHome()"><span class="ic">🏠</span>Alle Turniere</button>
@@ -302,7 +303,7 @@ select option{background:var(--bg3);color:var(--text)}
     <div id="pt-tipping" style="display:none"></div>
     <!-- Floating action bar -->
     <div id="pub-float-bar" style="position:fixed;bottom:20px;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:0 16px;z-index:100;pointer-events:none">
-      <button id="pub-float-save" onclick="saveAllTips()" style="display:none;pointer-events:all;background:var(--gold);color:var(--navy);border:none;border-radius:24px;padding:10px 18px;font-family:var(--font-display);font-weight:700;font-size:13px;letter-spacing:.04em;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.4)">💾 Tipps speichern</button>
+      <button id="pub-float-save" onclick="saveAllTips()" disabled style="display:none;pointer-events:all;background:var(--gold);color:var(--navy);border:none;border-radius:24px;padding:10px 18px;font-family:var(--font-display);font-weight:700;font-size:13px;letter-spacing:.04em;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.4);opacity:.4;transition:opacity .2s">💾 Tipps speichern</button>
       <span style="flex:1"></span>
       <button onclick="refreshPublicView()" style="pointer-events:all;background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:24px;padding:10px 16px;font-family:var(--font-display);font-weight:700;font-size:13px;letter-spacing:.04em;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.4)">🔄 Refresh</button>
     </div>
@@ -3265,7 +3266,9 @@ async function renderTipForm(){
   if(!tipDiv||!_tipSession)return;
   // Show floating save button
   const saveBtn=document.getElementById('pub-float-save');
-  if(saveBtn)saveBtn.style.display='';
+  if(saveBtn){saveBtn.style.display='';saveBtn.disabled=true;saveBtn.style.opacity='0.4';}
+  // Check state after DOM settles
+  setTimeout(updateSaveBtnState, 50);
   const t=DB.tournaments.find(x=>x.id===_tipSession.tournament_id);
   if(!t)return;
   const myTips=await loadMyTips(t.id);
@@ -3364,12 +3367,12 @@ async function renderTipForm(){
             <input class="score-inp" id="tip_h_${m.id}" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off"
               value="${(tip!==undefined&&tip.home_goals!==null&&tip.home_goals!==''&&tip.home_goals!==0)?tip.home_goals:''}" placeholder="${tip!==undefined&&(tip.home_goals===0||tip.home_goals==='0')?'0':'–'}"
               style="width:48px;font-size:18px;text-align:center;padding:6px 4px"
-              onfocus="this.select();" onclick="this.select();" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,2)">
+              onfocus="this.select();" onclick="this.select();" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,2);updateSaveBtnState();">
             <span style="color:var(--muted);font-weight:700;font-size:18px">:</span>
             <input class="score-inp" id="tip_a_${m.id}" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off"
               value="${(tip!==undefined&&tip.away_goals!==null&&tip.away_goals!==''&&tip.away_goals!==0)?tip.away_goals:''}" placeholder="${tip!==undefined&&(tip.away_goals===0||tip.away_goals==='0')?'0':'–'}"
               style="width:48px;font-size:18px;text-align:center;padding:6px 4px"
-              onfocus="this.select();" onclick="this.select();" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,2)">
+              onfocus="this.select();" onclick="this.select();" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,2);updateSaveBtnState();">
           </div>
           <span style="font-weight:${isFav(m.away)?'700':'500'};font-size:13px;text-align:right">${favHeart(m.away)}${esc(m.away)}</span>
         </div>
@@ -4159,6 +4162,17 @@ async function refreshPublicView(){
   }finally{
     if(btn){btn.innerHTML='🔄 Refresh';btn.disabled=false;}
   }
+}
+
+async 
+function updateSaveBtnState(){
+  const btn=document.getElementById('pub-float-save');
+  if(!btn||btn.style.display==='none')return;
+  const inputs=document.querySelectorAll('#pt-tipping input[id^="tip_h_"], #pt-tipping input[id^="tip_a_"]');
+  const anyFilled=[...inputs].some(inp=>inp.value.trim()!=='');
+  btn.disabled=!anyFilled;
+  btn.style.opacity=anyFilled?'1':'0.4';
+  btn.style.cursor=anyFilled?'pointer':'not-allowed';
 }
 
 async function saveAllTips(){
