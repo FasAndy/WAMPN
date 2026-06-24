@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>WAMPN v0.47</title>
+<title>WAMPN v0.48</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 /* FC Muldakicker — Club Colours (dark mode) */
@@ -248,7 +248,7 @@ select option{background:var(--bg3);color:var(--text)}
   <div class="sidebar">
     <div class="sb-header">
       <div class="sb-logo" id="sl-logo">🏆</div>
-      <div><div style="font-family:var(--font-display);font-weight:700;font-size:15px;letter-spacing:.06em;text-transform:uppercase;color:var(--gold)">WAMPN</div><div style="font-size:10px;color:var(--muted)">v0.47</div></div>
+      <div><div style="font-family:var(--font-display);font-weight:700;font-size:15px;letter-spacing:.06em;text-transform:uppercase;color:var(--gold)">WAMPN</div><div style="font-size:10px;color:var(--muted)">v0.48</div></div>
     </div>
     <div class="sb-sec">Navigation</div>
     <button class="nav-item active" id="nav-home" onclick="openHome()"><span class="ic">🏠</span>Alle Turniere</button>
@@ -2644,7 +2644,9 @@ function cancelNewTourney(){
     if(!resolved) DB.tournaments=[];
   }catch(e){ console.warn('Cloud restore failed, keeping local demo data:',e); _resolvedTournamentId=null; }
   _cloudLoaded=true;
-  openHome(); // fav loaded per-tournament on tip login
+  openHome();
+  // Load fav for the resolved tournament so public view shows it on fresh load
+  if(_resolvedTournamentId) loadFavTeam(_resolvedTournamentId);
   // openHome() resets activeTournamentId to null — re-apply our resolved tournament.
   if(_resolvedTournamentId) DB.activeTournamentId=_resolvedTournamentId;
 
@@ -3840,7 +3842,10 @@ function showFavPicker(t){
 }
 
 async function renderPublic(){
-  let t=T()||DB.tournaments.find(x=>!x.archived);
+  // Restore fav from localStorage if lost (e.g. after pull-to-refresh)
+  const _rpT=T()||DB.tournaments.find(x=>!x.archived);
+  if(_rpT&&!_favTeam) loadFavTeam(_rpT.id);
+  let t=_rpT;
   if(!t){
     document.getElementById('pub-title').textContent='Kein aktives Turnier';
     document.getElementById('pub-sub').textContent='Das Turnier wurde beendet oder ist noch nicht gestartet.';
@@ -4496,7 +4501,9 @@ async function initApp(){
     if(!resolved) DB.tournaments=[];
   }catch(e){ console.warn('Cloud restore failed, keeping local demo data:',e); _resolvedTournamentId=null; }
   _cloudLoaded=true;
-  openHome(); // fav loaded per-tournament on tip login
+  openHome();
+  // Load fav for the resolved tournament so public view shows it on fresh load
+  if(_resolvedTournamentId) loadFavTeam(_resolvedTournamentId);
   // openHome() resets activeTournamentId to null — re-apply our resolved tournament.
   if(_resolvedTournamentId) DB.activeTournamentId=_resolvedTournamentId;
 
