@@ -3360,14 +3360,14 @@ async function renderTipForm(){
           <span style="font-weight:${isFav(m.home)?'700':'500'};font-size:13px">${favHeart(m.home)}${esc(m.home)}</span>
           <div style="display:flex;align-items:center;gap:4px">
             <input class="score-inp" id="tip_h_${m.id}" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off"
-              value="${tip!==undefined?tip.home_goals:''}" placeholder="–"
+              value="${(tip!==undefined&&tip.home_goals!==null&&tip.home_goals!==''&&tip.home_goals!==0)?tip.home_goals:''}" placeholder="${tip!==undefined&&(tip.home_goals===0||tip.home_goals==='0')?'0':'–'}"
               style="width:48px;font-size:18px;text-align:center;padding:6px 4px"
-              onfocus="if(this.value==='0')this.value='';else this.select();" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,2)">
+              onfocus="this.select();" onclick="this.select();" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,2)">
             <span style="color:var(--muted);font-weight:700;font-size:18px">:</span>
             <input class="score-inp" id="tip_a_${m.id}" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off"
-              value="${tip!==undefined?tip.away_goals:''}" placeholder="–"
+              value="${(tip!==undefined&&tip.away_goals!==null&&tip.away_goals!==''&&tip.away_goals!==0)?tip.away_goals:''}" placeholder="${tip!==undefined&&(tip.away_goals===0||tip.away_goals==='0')?'0':'–'}"
               style="width:48px;font-size:18px;text-align:center;padding:6px 4px"
-              onfocus="if(this.value==='0')this.value='';else this.select();" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,2)">
+              onfocus="this.select();" onclick="this.select();" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,2)">
           </div>
           <span style="font-weight:${isFav(m.away)?'700':'500'};font-size:13px;text-align:right">${favHeart(m.away)}${esc(m.away)}</span>
         </div>
@@ -4172,7 +4172,11 @@ async function saveAllTips(){
     const matchId=hInp.id.replace('tip_h_','');
     const aInp=document.getElementById('tip_a_'+matchId);
     if(!hInp.value.trim()||!aInp?.value.trim())continue;
-    const h=parseInt(hInp.value),a=parseInt(aInp.value);
+    // Empty field with placeholder "0" means user accepted 0
+    const hVal=hInp.value.trim()===''?(hInp.placeholder==='0'?'0':''):hInp.value.trim();
+    const aVal=aInp.value.trim()===''?(aInp.placeholder==='0'?'0':''):aInp.value.trim();
+    if(hVal===''||aVal==='')continue;
+    const h=parseInt(hVal),a=parseInt(aVal);
     if(isNaN(h)||isNaN(a))continue;
     // Check if locked
     const m=freshT.matches.find(x=>String(x.id)===matchId)||(freshT.bracket?.matches||[]).find(x=>x.id===matchId);
