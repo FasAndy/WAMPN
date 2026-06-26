@@ -1018,7 +1018,30 @@ function dDrop(e,tid){
 }
 function chkOvBtn(id){const h=document.getElementById('ov_h'+id),a=document.getElementById('ov_a'+id),btn=document.getElementById('ovbtn'+id);if(btn)btn.classList.toggle('ready',!!(h&&a&&h.value!==''&&a.value!=='')); }
 function focusScoreOv(el,id){if(el.value==='')el.value='0';chkOvBtn(id);}
-function saveOvResult(id){const t=T();if(!t)return;const m=t.matches.find(x=>x.id===id);const h=parseInt($('ov_h'+id)?.value),a=parseInt($('ov_a'+id)?.value);if(isNaN(h)||isNaN(a)||h<0||a<0){alert('Bitte gültige Ergebnisse!');return;}m.hg=h;m.ag=a;m.played=true;showPage('overview');}
+function saveOvResult(id){
+  const t=T();if(!t)return;
+  const m=t.matches.find(x=>x.id===id);
+  const h=parseInt($('ov_h'+id)?.value),a=parseInt($('ov_a'+id)?.value);
+  if(isNaN(h)||isNaN(a)||h<0||a<0){alert('Bitte gültige Ergebnisse!');return;}
+  // Check for other pending results in overview
+  const others=[];
+  t.matches.filter(x=>!x.played&&x.id!==id).forEach(x=>{
+    const hv=$('ov_h'+x.id)?.value;
+    const av=$('ov_a'+x.id)?.value;
+    if(hv!==''&&hv!=null&&av!==''&&av!=null){
+      const hp=parseInt(hv),ap=parseInt(av);
+      if(!isNaN(hp)&&!isNaN(ap)&&hp>=0&&ap>=0)
+        others.push({match:x,hg:hp,ag:ap});
+    }
+  });
+  if(others.length>0){
+    const doAll=confirm('Es sind '+others.length+' weitere Ergebnis'+(others.length===1?'':'se')+' eingegeben. Alle speichern?');
+    if(!doAll) return; // Cancel → save nothing, keep all inputs intact
+    others.forEach(o=>{o.match.hg=o.hg;o.match.ag=o.ag;o.match.played=true;});
+  }
+  m.hg=h;m.ag=a;m.played=true;
+  showPage('overview');
+}
 function saveResult(id){
   const t=T();if(!t)return;
   const m=t.matches.find(x=>x.id===id);
@@ -3720,7 +3743,7 @@ function showPage(p){
     return; // silently block
   }
   document.querySelectorAll('#sb-t-nav .nav-item').forEach(n=>n.classList.remove('active'));
-  const map={overview:0,settings:1,teams:2,groups:3,schedule:4,standings:5,bracket:6,custom_bracket:7,qr:8,tipping_ranking:9};
+  const map={overview:0,settings:1,teams:2,groups:3,schedule:4,standings:5,bracket:6,qr:7,tipping_ranking:8};
   const items=document.querySelectorAll('#sb-t-nav .nav-item');
   if(items[map[p]])items[map[p]].classList.add('active');
   // Update URL to reflect current page (enables refresh to same page)
